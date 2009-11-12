@@ -1,0 +1,3 @@
+"""
+Metastock files manipulation package
+"""
