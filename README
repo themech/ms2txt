@@ -1,3 +1,5 @@
+Author: mech
+
 Python utility that reads Metastock data files and save the quotations in
 text files.
 Full article is available here: http://themech.net/2008/08/reading-metastock-files/
