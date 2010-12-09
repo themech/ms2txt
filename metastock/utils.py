@@ -14,10 +14,9 @@ def fmsbin2ieee(bytes):
     if not as_int:
         return 0.0
     man = long(struct.unpack('H', bytes[2:])[0])
+    if not man:
+        return 0.0
     exp = (man & 0xff00) - 0x0200
-    if (exp & 0x8000 != man & 0x8000):
-        return 1.0
-        #raise ValueError('exponent overflow')
     man = man & 0x7f | (man << 8) & 0x8000
     man |= exp >> 1
 
