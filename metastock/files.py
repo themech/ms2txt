@@ -97,15 +97,18 @@ class DataFileInfo(object):
             return DataFileInfo.Column.format(self, value)
 
     class FloatColumn(Column):
-        """A float column"""
+        """
+        A float column
+        @ivar precision: round floats to n digits after the decimal point
+        """
+        precision = 2
+
         def read(self, bytes):
             """Convert bytes containing MBF to float"""
             return fmsbin2ieee(bytes)
 
         def format(self, value):
-            if math.modf(value)[0] != 0.0:
-                return str(round(value, 2))
-            return DataFileInfo.Column.format(self, value)
+            return ("%0."+str(self.precision)+"f") % value
 
     class IntColumn(Column):
         """An integer column"""
@@ -232,11 +235,14 @@ class MSEMasterFile(object):
         file_handle.read(116)
         return dfi
 
-    def __init__(self, filename):
+    def __init__(self, filename, precision=None):
         """
         The whole file is read while creating this object
         @param filename: name of the file to open (usually 'EMASTER')
+        @param precision: round floats to n digits after the decimal point
         """
+        if precision is not None:
+            DataFileInfo.FloatColumn.precision = precision
         file_handle = open(filename, 'rb')
         files_no = struct.unpack("H", file_handle.read(2))[0]
         last_file = struct.unpack("H", file_handle.read(2))[0]
