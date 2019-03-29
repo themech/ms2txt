@@ -28,6 +28,8 @@ def main():
                       help="extract all the symbols from EMASTER file")
     parser.add_option("-p", "--precision", type="int", dest="precision",
                       help="round the floating point numbers to PRECISION digits after the decimal point (default: 2)")
+    parser.add_option("-e", "--encoding", type="str", dest="encoding", default="ascii",
+                     help="character encoding of the stock names like cp1250 or cp1256 (default: ascii)")
 
 
     (options, args) = parser.parse_args()
@@ -37,7 +39,7 @@ def main():
         parser.print_help()
         sys.exit(0)
 
-    em_file = MSEMasterFile('EMASTER', options.precision)
+    em_file = MSEMasterFile('EMASTER', options.encoding, options.precision)
     # list the symbols or extract the data
     if options.list:
         em_file.list_all_symbols()

@@ -31,8 +31,8 @@ def float2date(date):
     Here we convert it to a python datetime.date object.
     """
     date = int(date)
-    year = 1900 + (date / 10000)
-    month = (date % 10000) / 100
+    year = 1900 + (date // 10000)
+    month = (date % 10000) // 100
     day = date % 100
     return datetime.date(year, month, day)
 
@@ -42,6 +42,6 @@ def float2time(time):
     Here we convert it to a python datetime.time object.
     """
     time = int(time)
-    hour = time / 10000
-    minute = (time % 10000) / 100
+    hour = time // 10000
+    minute = (time % 10000) // 100
     return datetime.time(hour, minute)
