@@ -223,7 +223,12 @@ class MSEMasterFile(object):
         file_handle.read(4)
         dfi.stock_symbol = file_handle.read(14).decode('ascii').strip('\x00')
         file_handle.read(7)
-        dfi.stock_name = file_handle.read(16).decode(self.encoding).strip('\x00')
+        try:
+            dfi.stock_name = file_handle.read(16).decode(self.encoding).strip('\x00')
+        except Exception, e:
+            print("Error while reading the stock name. Did you specify the correct encoding?\n" +
+                  "Current encoding: %s, error message: %s" % (self.encoding, e))
+            raise e
         file_handle.read(12)
         dfi.time_frame = struct.unpack("c", file_handle.read(1))[0]
         file_handle.read(3)
