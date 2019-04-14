@@ -2,55 +2,55 @@
 Reading metastock files.
 """
 
+import os
 import struct
 import re
-import math
 import traceback
 
-from .utils import fmsbin2ieee, float2date, float2time
+from .utils import fmsbin2ieee, float2date, float2time, int2date, paddedString
 
-class DataFileInfo(object):
-    """
-    I represent a metastock data describing a single symbol
-    Each symbol has a number (file_num). To read the quotes we need to read
-    two files: a <file_num>.DAT file with the tick data and a <file_num>.DOP
-    file describing what columns are in the DAT file
-    @ivar file_num: symbol number
-    @ivar num_fields: number of columns in DAT file
-    @ivar stock_symbol: stock symbol
-    @ivar stock_name: full stock name
-    @ivar time_frame: tick time frame (f.e. 'D' means EOD data)
-    @ivar first_date: first tick date
-    @ivar last_date: last tick date
-    @ivar columns: list of columns names
-    """
-    file_num = None
-    num_fields = None
-    stock_symbol = None
-    stock_name = None
-    time_frame = None
-    first_date = None
-    last_date = None
 
+class DatFile:
+    stock = None
     reg = re.compile('\"(.+)\",.+', re.IGNORECASE)
     columns = None
 
-    def _load_columns(self):
-        """
-        Read columns names from the DOP file
-        """
-        filename = 'F%d.DOP' % self.file_num
-        file_handle = open(filename, 'r')
-        lines = file_handle.read().split()
-        file_handle.close()
-        assert(len(lines) == self.num_fields)
-        self.columns = []
-        for line in lines:
-            match = self.reg.search(line)
-            colname = match.groups()[0]
-            self.columns.append(colname)
+    def __init__(self, stock):
+        self.stock = stock
 
-    class Column(object):
+    def dump(self):
+        try:
+            self.load_columns()
+            self.dump_candles()
+        except Exception:
+            print("Error while converting symbol", self.stock.stock_symbol)
+            traceback.print_exc()
+
+    def load_columns(self):
+        """
+        Try to read columns names from the DOP file
+        """
+        filename = 'F%d.DOP' % self.stock.file_number
+        if not os.path.isfile(filename):
+            print("No DOP file found, assuming default columns set")
+            assert(self.stock.fields == 7)
+            # TBD - add support for intraday data
+            self.columns = [
+                'DATE', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOL', 'OI'
+            ]
+        else:
+            file_handle = open(filename, 'r')
+            lines = file_handle.read().split()
+            file_handle.close()
+            assert(len(lines) == self.stock.fields)
+            self.columns = []
+            for line in lines:
+                match = self.reg.search(line)
+                colname = match.groups()[0]
+                self.columns.append(colname)
+            print(self.columns)
+
+    class Column:
         """
         This is a base class for classes reading metastock data for a specific
         columns. The read method is called when reading a decode the column
@@ -132,7 +132,7 @@ class DataFileInfo(object):
     max_recs = 0
     last_rec = 0
 
-    def load_candles(self):
+    def dump_candles(self):
         """
         Load metastock DAT file and write the content
         to a text file
@@ -140,36 +140,34 @@ class DataFileInfo(object):
         file_handle = None
         outfile = None
         try:
-            filename = 'F%d.DAT' % self.file_num
-            file_handle = open(filename, 'rb')
+            file_handle = open('%s%s' % (self.stock.filename, self.stock.datafile_ext), 'rb')
             self.max_recs = struct.unpack("H", file_handle.read(2))[0]
             self.last_rec = struct.unpack("H", file_handle.read(2))[0]
 
             # not sure about this, but it seems to work
-            file_handle.read((self.num_fields - 1) * 4)
+            file_handle.seek((self.stock.fields - 1) * 4, os.SEEK_CUR)
 
-            #print "Expecting %d candles in file %s. num_fields : %d" % \
+            # print "Expecting %d candles in file %s. num_fields : %d" % \
             #    (self.last_rec - 1, filename, self.num_fields)
-
-            outfile = open('%s.TXT' % self.stock_symbol, 'w')
+            outfile = open('%s.TXT' % self.stock.stock_symbol, 'w')
             # write the header line, for example:
-            #"Name","Date","Time","Open","High","Low","Close","Volume","Oi"
+            # "Name","Date","Time","Open","High","Low","Close","Volume","Oi"
             outfile.write('"Name"')
             columns = []
             for ms_col_name in self.columns:
                 column = self.knownMSColumns.get(ms_col_name)
                 if column is not None:
                     outfile.write(',"%s"' % column.name)
-                columns.append(column) # we append None if the column is unknown
+                columns.append(column)  # we append None if the column is unknown
             outfile.write('\n')
 
             # we have (self.last_rec - 1) candles to read
-            for _ in xrange(self.last_rec - 1):
-                outfile.write(self.stock_symbol)
+            for _ in range(self.last_rec - 1):
+                outfile.write(self.stock.stock_symbol)
                 for col in columns:
-                    if col is None: # unknown column?
+                    if col is None:  # unknown column?
                         # ignore this column
-                        file_handle.read(self.unknownColumnDataSize)
+                        file_handle.seek(self.unknownColumnDataSize, os.SEEK_CUR)
                     else:
                         # read the column data
                         bytes = file_handle.read(col.dataSize)
@@ -187,88 +185,231 @@ class DataFileInfo(object):
             if file_handle is not None:
                 file_handle.close()
 
-    def convert2ascii(self):
-        """
-        Load Metastock data file and output the data to text file.
-        """
-        print("Processing %s (fileNo %d)" % (self.stock_symbol, self.file_num))
-        try:
-            #print self.stock_symbol, self.file_num
-            self._load_columns()
-            #print self.columns
-            self.load_candles()
-        except Exception:
-            print("Error while converting symbol", self.stock_symbol)
-            traceback.print_exc()
 
-class MSEMasterFile(object):
+def dump_stock_to_file(stock):
+    print("Processing %s (fileNo %d)" % (stock.stock_symbol, stock.file_number))
+    try:
+        file = DatFile(stock)
+        file.dump()
+    except Exception:
+        print("Error while converting symbol", stock.stock_symbol)
+        traceback.print_exc()
+
+
+class Stock:
+    file_number = 0
+    record_length = 0
+    fields = 0
+    stock_symbol = ''
+    stock_name = ''
+    first_date = None
+    last_date = None
+    time_frame = 'D'
+    datafile_ext = ''
+    filename = ''
+
+    def __str__(self):
+        return u'symbol: %s, name: %s, filename: %s, start: %s, end: %s, frame: %s' % (
+            self.stock_symbol, self.stock_name, self.filename, self.first_date, self.last_date, self.time_frame
+        )
+
+
+class MSMasterFile:
+    reconds_count = 0
+    file_handle = None
+
+    def __init__(self, encoding):
+        self.encoding = encoding
+
+    def load(self):
+        if os.path.isfile('MASTER'):
+            self.file_handle = open('MASTER', 'rb')
+            self.reconds_count = struct.unpack("H", self.file_handle.read(2))[0]
+
+    def close(self):
+        if self.file_handle is not None:
+            self.file_handle.close()
+            self.file_handle = None
+
+    def load_symbol(self, i):
+        symbol = Stock()
+        self.file_handle.seek( (i+1)*53)
+        symbol.file_number = struct.unpack("B", self.file_handle.read(1))[0]
+        symbol.filename = 'F%d' % symbol.file_number
+        symbol.datafile_ext = '.DAT'
+        self.file_handle.seek(2, os.SEEK_CUR)
+        symbol.record_length = struct.unpack("B", self.file_handle.read(1))[0]
+        # czy potrzebuje field_bitset?
+        symbol.fields = struct.unpack("B", self.file_handle.read(1))[0]
+        self.file_handle.seek(2, os.SEEK_CUR)
+        name = self.file_handle.read(16)
+        symbol.stock_name = paddedString(name, self.encoding)
+
+        self.file_handle.seek(2, os.SEEK_CUR)
+        symbol.first_date = float2date(fmsbin2ieee(self.file_handle.read(4)))
+        symbol.last_date = float2date(fmsbin2ieee(self.file_handle.read(4)))
+
+        symbol.time_frame = struct.unpack("c", self.file_handle.read(1))[0].decode('ascii')
+        self.file_handle.seek(2, os.SEEK_CUR)
+        name = self.file_handle.read(14)
+        symbol.stock_symbol = paddedString(name, 'ascii')
+        return symbol
+
+
+class MSEMasterFile:
     """
     Metastock extended index file
-    @ivar stocks: list of DataFileInfo objects
     """
-    stocks = None
 
-    def _read_file_info(self, file_handle):
-        """
-        read the entry for a single symbol and return a DataFileInfo
-        describing it
-        @parm file_handle: emaster file handle
-        @return: DataFileInfo instance
-        """
-        dfi = DataFileInfo()
-        file_handle.read(2)
-        dfi.file_num = struct.unpack("B", file_handle.read(1))[0]
-        file_handle.read(3)
-        dfi.num_fields = struct.unpack("B", file_handle.read(1))[0]
-        file_handle.read(4)
-        dfi.stock_symbol = file_handle.read(14).rstrip(b'\x00').decode('ascii')
-        file_handle.read(7)
-        try:
-            dfi.stock_name = file_handle.read(16).rstrip(b'\x00').decode(self.encoding)
-        except Exception, e:
-            print("Error while reading the stock name. Did you specify the correct encoding?\n" +
-                  "Current encoding: %s, error message: %s" % (self.encoding, e))
-            raise e
-        file_handle.read(12)
-        dfi.time_frame = struct.unpack("c", file_handle.read(1))[0]
-        file_handle.read(3)
-        dfi.first_date = float2date(struct.unpack("f", \
-                                                   file_handle.read(4))[0])
-        file_handle.read(4)
-        dfi.last_date = float2date(struct.unpack("f", \
-                                                  file_handle.read(4))[0])
-        file_handle.read(116)
-        return dfi
+    def __init__(self, encoding):
+        self.encoding = encoding
+        self.reconds_count = 0
 
-    def __init__(self, filename, encoding, precision=None):
+    def load(self):
         """
         The whole file is read while creating this object
         @param filename: name of the file to open (usually 'EMASTER')
-        @param precision: round floats to n digits after the decimal point
         """
+        if os.path.isfile('EMASTER'):
+            self.file_handle = open('EMASTER', 'rb')
+            self.reconds_count = struct.unpack("H", self.file_handle.read(2))[0] # czy moze 1 bajt i B?
+            self.last_file = struct.unpack("H", self.file_handle.read(2))[0]
+        return
+
+    def close(self):
+        if self.file_handle is not None:
+            self.file_handle.close()
+            self.file_handle = None
+
+    def load_symbol(self, i):
+        symbol = Stock()
+        self.file_handle.seek( (i+1)*192)
+
+        self.file_handle.seek(2, os.SEEK_CUR)
+        symbol.file_number = struct.unpack("B", self.file_handle.read(1))[0]
+        if symbol.file_number == 0:
+            return symbol
+        symbol.filename = 'F%d' % symbol.file_number
+        symbol.datafile_ext = '.DAT'
+        self.file_handle.seek(3, os.SEEK_CUR)
+        symbol.fields = struct.unpack("B", self.file_handle.read(1))[0]
+        self.file_handle.seek(4, os.SEEK_CUR)
+        name = self.file_handle.read(14)
+        symbol.stock_symbol = paddedString(name, 'ascii')
+        self.file_handle.seek(7, os.SEEK_CUR)
+        name = self.file_handle.read(16)
+        symbol.stock_name = paddedString(name, self.encoding)
+        self.file_handle.seek(12, os.SEEK_CUR)
+        symbol.time_frame = struct.unpack("c", self.file_handle.read(1))[0].decode('ascii')
+        self.file_handle.seek(3, os.SEEK_CUR)
+        symbol.first_date = float2date(fmsbin2ieee(self.file_handle.read(4)))
+        self.file_handle.seek(4, os.SEEK_CUR)
+        symbol.last_date = float2date(fmsbin2ieee(self.file_handle.read(4)))
+        return symbol
+
+
+class MSXMsterFile:
+    reconds_count = 0
+    file_handle = None
+
+    def __init__(self, encoding):
         self.encoding = encoding
+
+    def load(self):
+        if os.path.isfile('XMASTER'):
+            self.file_handle = open('XMASTER', 'rb')
+            self.file_handle.seek(10, os.SEEK_SET)
+            self.reconds_count = struct.unpack("H", self.file_handle.read(2))[0]
+
+    def close(self):
+        if self.file_handle is not None:
+            self.file_handle.close()
+            self.file_handle = None
+
+    def load_symbol(self, i):
+        symbol = Stock()
+        self.file_handle.seek( (i+1)*150 )
+        self.file_handle.seek(1, os.SEEK_CUR)
+        name = self.file_handle.read(14)
+        symbol.stock_symbol = paddedString(name, 'ascii')
+
+        self.file_handle.seek(1, os.SEEK_CUR)
+        name = self.file_handle.read(45)
+        symbol.stock_name = paddedString(name, self.encoding)
+
+        self.file_handle.seek(1, os.SEEK_CUR)
+        symbol.time_frame = struct.unpack("c", self.file_handle.read(1))[0].decode('ascii')
+        self.file_handle.seek(2, os.SEEK_CUR) # intraday timeframe?
+        symbol.file_number = struct.unpack("H", self.file_handle.read(2))[0]
+        symbol.filename = 'F%d' % symbol.file_number
+        symbol.datafile_ext = '.MWD'
+        self.file_handle.seek(3, os.SEEK_CUR)
+        self.file_handle.seek(1, os.SEEK_CUR) # bitset
+        self.file_handle.seek(33, os.SEEK_CUR)
+        self.file_handle.seek(4, os.SEEK_CUR) # collection date?
+        symbol.first_date = int2date(struct.unpack("I", self.file_handle.read(4))[0])
+        self.file_handle.seek(4, os.SEEK_CUR)  # first time?
+        #symbol.last_date = float2date(fmsbin2ieee(self.file_handle.read(4)))
+        symbol.last_date = int2date(struct.unpack("I", self.file_handle.read(4))[0])
+        self.file_handle.seek(4, os.SEEK_CUR)  # last time?
+
+        return symbol
+
+
+class MetastockFiles:
+    def __init__(self, encoding, precision=None):
         if precision is not None:
             DataFileInfo.FloatColumn.precision = precision
-        file_handle = open(filename, 'rb')
-        files_no = struct.unpack("H", file_handle.read(2))[0]
-        last_file = struct.unpack("H", file_handle.read(2))[0]
-        file_handle.read(188)
-        self.stocks = []
-        #print files_no, last_file
-        while files_no > 0:
-            self.stocks.append(self._read_file_info(file_handle))
-            files_no -= 1
-        file_handle.close()
+        emaster = MSEMasterFile(encoding)
+        master = MSMasterFile(encoding)
+        xmaster = MSXMsterFile(encoding)
+
+        self.symbols = {}
+
+        master.load()
+        if master.reconds_count > 0:
+            for i in range(master.reconds_count):
+                s = master.load_symbol(i)
+                if s.file_number > 0:
+                    self.symbols[s.file_number] = s
+        master.close()
+        emaster.load()
+        if emaster.reconds_count > 0:
+            for i in range(emaster.reconds_count):
+                s = emaster.load_symbol(i)
+
+                # -- debug --
+                #if s.file_number > 0 and s.file_number not in self.symbols:
+                #    print("Cannot find file %d in MASTER data" % s.file_number)
+                #else:
+                #    if s.file_number > 0 and len(s.stock_name) > 0 and s.stock_name != self.symbols[s.file_number].stock_name:
+                #        print("EMASTER wants to overwrite %s with %s" % (self.symbols[s.file_number].stock_name, s.stock_name))
+
+                if s.file_number > 0 and len(s.stock_name) > 0 and s.file_number in self.symbols:
+                    self.symbols[s.file_number].stock_name = s.stock_name
+        emaster.close()
+
+        # xmaster support is not ready yet, commented out
+        """
+        xmaster.load()
+        if xmaster.reconds_count > 0:
+            for i in range(xmaster.reconds_count):
+                s = xmaster.load_symbol(i)
+                if s.file_number > 0:
+                    self.symbols[s.file_number] = s
+        xmaster.close()
+        """
 
     def list_all_symbols(self):
         """
         Lists all the symbols from metastock index file and writes it
         to the output
         """
-        print("List of available symbols:")
-        for stock in self.stocks:
+        print('Number of available symbols: %d' % len(self.symbols))
+        for stock in self.symbols.values():
             print("symbol: %s, name: %s, file number: %s" % \
-                (stock.stock_symbol, stock.stock_name, stock.file_num))
+                (stock.stock_symbol, stock.stock_name, stock.file_number))
+
 
     def output_ascii(self, all_symbols, symbols):
         """
@@ -278,6 +419,7 @@ class MSEMasterFile(object):
         @type all_symbols: C{bool}
         @param symbols: list of symbols to process
         """
-        for stock in self.stocks:
-            if all_symbols or (stock.stock_symbol in symbols):
-                stock.convert2ascii()
+        for stock in self.symbols.values():
+            if all_symbols or (str(stock.stock_symbol) in symbols):
+                dump_stock_to_file(stock)
+

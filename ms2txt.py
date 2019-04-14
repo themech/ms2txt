@@ -7,7 +7,7 @@ in text format.
 import sys
 from optparse import OptionParser
 
-from metastock.files import MSEMasterFile
+from metastock.files import MetastockFiles
 
 Usage = """usage: %prog [options] [symbol1] [symbol2] ....
 
@@ -39,7 +39,7 @@ def main():
         parser.print_help()
         sys.exit(0)
 
-    em_file = MSEMasterFile('EMASTER', options.encoding, options.precision)
+    em_file = MetastockFiles(options.encoding, options.precision)
     # list the symbols or extract the data
     if options.list:
         em_file.list_all_symbols()
