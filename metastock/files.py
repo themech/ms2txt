@@ -83,7 +83,7 @@ class DatFile:
         def format(self, value):
             if value is not None:
                 return value.strftime('%Y%m%d')
-            return DataFileInfo.Column.format(self, value)
+            return DatFile.Column.format(self, value)
 
     class TimeColumn(Column):
         """A time column"""
@@ -94,7 +94,7 @@ class DatFile:
         def format(self, value):
             if value is not None:
                 return value.strftime('%Y%m%d')
-            return DataFileInfo.Column.format(self, value)
+            return DatFile.Column.format(self, value)
 
     class FloatColumn(Column):
         """
@@ -359,7 +359,7 @@ class MSXMsterFile:
 class MetastockFiles:
     def __init__(self, encoding, precision=None):
         if precision is not None:
-            DataFileInfo.FloatColumn.precision = precision
+            DatFile.FloatColumn.precision = precision
         emaster = MSEMasterFile(encoding)
         master = MSMasterFile(encoding)
         xmaster = MSXMsterFile(encoding)
