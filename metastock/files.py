@@ -33,11 +33,15 @@ class DatFile:
         filename = 'F%d.DOP' % self.stock.file_number
         if not os.path.isfile(filename):
             print("No DOP file found, assuming default columns set")
-            assert(self.stock.fields == 7)
-            # TBD - add support for intraday data
-            self.columns = [
-                'DATE', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOL', 'OI'
-            ]
+            assert(self.stock.fields in (7, 8))
+            if self.stock.fields == 7:
+                self.columns = [
+                    'DATE', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOL', 'OI'
+                ]
+            else:
+                self.columns = [
+                    'DATE', 'TIME', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOL', 'OI'
+                ]
         else:
             file_handle = open(filename, 'r')
             lines = file_handle.read().split()
@@ -93,7 +97,7 @@ class DatFile:
 
         def format(self, value):
             if value is not None:
-                return value.strftime('%Y%m%d')
+                return value.strftime('%H%M%S')
             return DatFile.Column.format(self, value)
 
     class FloatColumn(Column):
@@ -147,8 +151,8 @@ class DatFile:
             # not sure about this, but it seems to work
             file_handle.seek((self.stock.fields - 1) * 4, os.SEEK_CUR)
 
-            # print "Expecting %d candles in file %s. num_fields : %d" % \
-            #    (self.last_rec - 1, filename, self.num_fields)
+            #print("Expecting %d candles in file %s. num_fields : %d" % \
+            #   (self.last_rec - 1, self.stock.filename, self.stock.fields))
             outfile = open('%s.TXT' % self.stock.stock_symbol, 'w')
             # write the header line, for example:
             # "Name","Date","Time","Open","High","Low","Close","Volume","Oi"
@@ -264,6 +268,7 @@ class MSEMasterFile:
     def __init__(self, encoding):
         self.encoding = encoding
         self.reconds_count = 0
+        self.file_handle = None
 
     def load(self):
         """
