@@ -52,7 +52,7 @@ class DatFile:
                 match = self.reg.search(line)
                 colname = match.groups()[0]
                 self.columns.append(colname)
-            print(self.columns)
+        print(self.columns)
 
     class Column:
         """
